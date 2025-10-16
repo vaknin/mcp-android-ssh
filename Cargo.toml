@@ -7,7 +7,7 @@ description = "A high-performance MCP server for secure SSH access to Android de
 repository = "https://github.com/vaknin/mcp-android-ssh"
 homepage = "https://github.com/vaknin/mcp-android-ssh"
 readme = "README.md"
-keywords = ["mcp", "android", "ssh", "termux", "model-context-protocol"]
+keywords = ["android", "ssh", "mcp", "termux", "protocol"]
 categories = ["command-line-utilities", "network-programming"]
 authors = ["mcp-android-ssh contributors"]
 
