@@ -3,7 +3,8 @@
 //! A high-performance MCP (Model Context Protocol) server written in Rust
 //! that provides secure SSH access to Android devices.
 //!
-//! This server exposes two tools:
+//! This server exposes three tools:
+//! - `setup`: Configure Android SSH connection interactively
 //! - `execute_read`: Execute whitelisted read-only commands
 //! - `execute`: Execute any command (with user approval)
 //!
@@ -17,8 +18,9 @@ mod tools;
 
 use config::Config;
 use rmcp::{
+    ServerHandler, ServiceExt,
     model::{Implementation, ServerCapabilities, ServerInfo},
-    tool_handler, ServerHandler, ServiceExt,
+    tool_handler,
 };
 use tools::AndroidSshService;
 
@@ -81,8 +83,16 @@ impl ServerHandler for AndroidSshService {
             server_info: Implementation::from_build_env(),
             instructions: Some(
                 "Android SSH MCP Server - Secure SSH access to Android devices.\n\n\
+                Use setup to configure your connection.\n\
                 Use execute_read for safe read-only commands (ls, cat, ps, etc.).\n\
                 Use execute for commands that modify the system (rm, mkdir, curl, etc.).\n\n\
+                ## setup Tool\n\
+                Configure Android SSH connection interactively. All parameters optional.\n\
+                Provide host, user, and key_path (or password). Missing info will be requested.\n\n\
+                **Examples:**\n\
+                - Complete setup: setup(host=\"192.168.1.100\", user=\"u0_a555\", key_path=\"~/.ssh/id_ed25519\")\n\
+                - Partial update: setup(host=\"192.168.1.101\")\n\n\
+                After setup, restart the server from /mcp menu.\n\n\
                 ## execute_read Tool\n\
                 Execute SAFE shell commands on Android via SSH. Whitelisted commands only - cannot write/delete.\n\
                 Returns stdout, stderr, and exit code.\n\n\

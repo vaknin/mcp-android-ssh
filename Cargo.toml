@@ -1,7 +1,7 @@
 [package]
 name = "mcp-android-ssh"
-version = "0.1.0"
-edition = "2021"
+version = "0.1.1"
+edition = "2024"
 license = "MIT"
 description = "A high-performance MCP server for secure SSH access to Android devices via Termux"
 repository = "https://github.com/vaknin/mcp-android-ssh"

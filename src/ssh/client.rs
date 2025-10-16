@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::error::{Result, SshMcpError};
-use russh::keys::{self, decode_secret_key, PublicKey};
+use russh::keys::{self, PublicKey, decode_secret_key};
 use russh::*;
 use std::sync::Arc;
 use std::time::Duration;
@@ -154,7 +154,8 @@ impl SshClient {
             return Err(SshMcpError::Authentication(
                 "No authentication method available\n\n\
                  Must provide either 'password' or 'key_path' in config.\n\n\
-                 Setup guide: https://github.com/vaknin/mcp-android-ssh#setup".to_string(),
+                 Setup guide: https://github.com/vaknin/mcp-android-ssh#setup"
+                    .to_string(),
             ));
         };
 

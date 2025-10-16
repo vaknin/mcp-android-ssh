@@ -22,30 +22,20 @@ A high-performance [MCP](https://modelcontextprotocol.io/) server written in Rus
 
 Turn your Android device into a programmable computer that AI can interact with naturally. Instead of manually SSH'ing into your phone every time you need to check something or run a command, just ask Claude:
 
-- "Show me my recent photos"
 - "Check if my Termux background service is running"
 - "Download this paper to my tablet"
 - "Find all PDFs on my device larger than 10MB"
 
-**vs. Manual SSH:** While you *could* SSH manually every time, this MCP server provides:
-- **Natural language interface** - No need to remember SSH commands or device IPs
-- **Persistent connection** - Auto-reconnects when dropped, handles network issues
-- **Safety guardrails** - Read-only operations require no approval, write operations are explicit
-- **Zero context switching** - Stay in your Claude conversation, don't break flow
-- **Cross-device workflows** - Combine Android commands with other MCP tools seamlessly
-
 ## Features
 
-- **Zero-config first run** - Creates config template automatically on first use
+- **Interactive setup tool** - Configure through natural conversation with Claude
 - **Lightweight & fast** - 401 KiB binary, memory-safe Rust implementation
 - **Smart safety** - 81 whitelisted read-only commands run freely, writes require explicit tool
 - **Bulletproof connectivity** - Auto-reconnect with retry logic, handles network drops
-- **Flexible auth** - SSH key (recommended) or password authentication
+- **Flexible auth** - SSH key or password authentication
 - **Privacy-first** - Local-only connection, no data leaves your network
 
 ## Quick Start
-
-### TL;DR (Experienced Users)
 
 ```bash
 # Install
@@ -56,12 +46,14 @@ claude mcp add --scope user --transport stdio mcp-android-ssh mcp-android-ssh
 pkg install openssh && sshd
 
 # Copy your SSH key
-ssh-copy-id -p 8022 -i ~/.ssh/id_ed25519.pub YOUR_USER@YOUR_ANDROID_IP
+ssh-copy-id -p 8022 -i ~/.ssh/id_ed25519.pub u0_a555@192.168.1.100
 
-# Ask Claude anything about your Android device!
+# Configure via Claude (recommended) - just ask:
+"Set up Android at 192.168.1.100, user u0_a555, key ~/.ssh/id_ed25519"
+# Then restart from /mcp menu
+
+# Or manually edit: ~/.config/mcp-android-ssh/config.toml
 ```
-
-The server will create `~/.config/mcp-android-ssh/config.toml` on first use - just edit with your device credentials.
 
 <details>
 <summary><b>Detailed Setup Guide</b> (click to expand)</summary>
@@ -102,7 +94,18 @@ ssh-copy-id -p 8022 -i ~/.ssh/id_ed25519.pub u0_a555@192.168.1.100
 
 **Step 4: Configure the server**
 
-On first use, when you ask Claude to interact with your Android device, the server will create a config template at `~/.config/mcp-android-ssh/config.toml` with instructions. Edit it with your credentials:
+**Option A: Let Claude configure it (easiest)**
+
+Just ask Claude to set it up:
+```
+"Set up my Android connection at 192.168.1.100, user u0_a555, use ~/.ssh/id_ed25519"
+```
+
+Then restart the MCP server from the `/mcp` menu in Claude Code.
+
+**Option B: Manual configuration**
+
+Edit `~/.config/mcp-android-ssh/config.toml`:
 
 ```toml
 host = "192.168.1.100"        # Your Android device IP
@@ -114,9 +117,9 @@ key_path = "~/.ssh/id_ed25519" # Path to your SSH private key
 # password = "your_password"
 ```
 
-**Alternative: Use environment variables**
+**Option C: Use environment variables**
 
-You can also configure via environment variables (useful for testing):
+Configure via environment variables (useful for testing):
 ```bash
 export ANDROID_SSH_HOST=192.168.1.100
 export ANDROID_SSH_USER=u0_a555
@@ -131,41 +134,30 @@ That's it! Start asking your AI assistant to interact with your Android device.
 
 ## Usage Examples
 
-### File Management
+**File Management**
 - "Show me my most recent photos from /sdcard/DCIM"
-- "Find all PDF files on my device larger than 10MB"
+- "Find all PDF files larger than 10MB"
 - "What's taking up the most space on my phone?"
-- "List all APK files I've downloaded"
 
-### Development & Monitoring
-- "Show me running processes sorted by memory usage"
-- "Check if my PostgreSQL server is running in Termux"
-- "What's the CPU temperature right now?"
+**Development & Monitoring**
+- "Check if my PostgreSQL server is running"
+- "Show me running processes sorted by memory"
 - "Show me the last 50 lines of my server logs"
 
-### System Administration
-- "Install python and pip on my Android device"
+**System Administration**
+- "Install python and pip on my device"
 - "Create a backup of my Termux home directory"
-- "Download the latest dataset from example.com to /sdcard"
-- "Set up a cron job to run my backup script daily"
+- "Download this dataset to /sdcard"
 
-### Data Analysis
-- "Parse my call log and show me my top 10 contacts by call count"
-- "Extract all URLs from my browser history"
-- "Analyze my app usage statistics from dumpsys"
-- "Find duplicate files in my photos directory"
-
-### Quick Utilities
-- "What's my Android device's IP address?"
-- "Show me battery information"
-- "Check if specific packages are installed"
-- "Read my termux startup script"
+**Data Analysis**
+- "Find duplicate files in my photos"
+- "Analyze my app usage with dumpsys"
 
 ---
 
 ## API Reference
 
-The server exposes two MCP tools that Claude can use:
+The server exposes three MCP tools that Claude can use:
 
 ### `execute_read` - Safe Read-Only Commands
 
@@ -200,10 +192,39 @@ Executes any command including write/modify/delete operations. Use this for inst
 
 ---
 
-<div align="center">
+### `setup` - Interactive Configuration Helper
 
-**[Report Bug](https://github.com/vaknin/mcp-android-ssh/issues)** · **[Request Feature](https://github.com/vaknin/mcp-android-ssh/issues)**
+Configure your Android SSH connection directly through Claude. Supports partial updates and guides you through missing information.
 
-Built with [MCP](https://modelcontextprotocol.io/) • Powered by [russh](https://github.com/warp-tech/russh)
+**Parameters (all optional):**
+- `host` (string) - Android device IP address
+- `port` (number) - SSH port (default: 8022)
+- `user` (string) - Termux username
+- `key_path` (string) - Path to SSH private key
+- `password` (string) - SSH password (not recommended)
 
-</div>
+**Usage:**
+
+Complete setup in one go:
+```
+"Set up Android at 192.168.1.100, user u0_a555, key ~/.ssh/id_ed25519"
+```
+
+Or step-by-step - Claude will ask for missing info:
+```
+"Help me set up my Android connection"
+```
+
+Update just one field:
+```
+"Change the host to 192.168.1.101"
+```
+
+After setup completes, restart the MCP server from the `/mcp` menu.
+
+---
+
+## Acknowledgments
+
+- [rmcp](https://github.com/modelcontextprotocol/rust-sdk)  
+- [russh](https://github.com/warp-tech/russh)

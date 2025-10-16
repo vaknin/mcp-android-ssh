@@ -147,7 +147,7 @@ pub struct AndroidSshService {
 
 impl AndroidSshService {
     pub fn new(config: Option<crate::config::Config>) -> Self {
-        let ssh_client = config.map(|cfg| SshClient::new(cfg));
+        let ssh_client = config.map(SshClient::new);
         Self {
             ssh_client: Arc::new(Mutex::new(ssh_client)),
             tool_router: Self::tool_router(),
@@ -164,13 +164,34 @@ pub struct ExecuteRequest {
     pub timeout: u64,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SetupRequest {
+    /// Android device IP address (e.g., 192.168.1.100)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// SSH port (default: 8022 for Termux)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// Termux username (run 'whoami' in Termux)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    /// Path to SSH private key (recommended, e.g., ~/.ssh/id_ed25519)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_path: Option<String>,
+    /// SSH password (alternative to key_path, not recommended)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+}
+
 fn default_timeout() -> u64 {
     30
 }
 
 #[tool_router]
 impl AndroidSshService {
-    #[tool(description = "Execute safe read-only shell commands on Android via SSH (81 whitelisted commands)")]
+    #[tool(
+        description = "Execute safe read-only shell commands on Android via SSH (81 whitelisted commands)"
+    )]
     async fn execute_read(
         &self,
         Parameters(request): Parameters<ExecuteRequest>,
@@ -249,7 +270,9 @@ impl AndroidSshService {
         }
     }
 
-    #[tool(description = "Execute any shell command on Android via SSH, including write/modify/delete operations")]
+    #[tool(
+        description = "Execute any shell command on Android via SSH, including write/modify/delete operations"
+    )]
     async fn execute(
         &self,
         Parameters(request): Parameters<ExecuteRequest>,
@@ -314,6 +337,130 @@ impl AndroidSshService {
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Command execution failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Configure Android SSH connection - provide credentials to connect to your Android device"
+    )]
+    async fn setup(
+        &self,
+        Parameters(request): Parameters<SetupRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        // Try to load existing config, or create empty one
+        let existing_config = crate::config::Config::load_existing().ok();
+
+        // Merge with provided values
+        let host = request
+            .host
+            .or_else(|| existing_config.as_ref().map(|c| c.host.clone()));
+        let port = request
+            .port
+            .or_else(|| existing_config.as_ref().map(|c| c.port));
+        let user = request
+            .user
+            .or_else(|| existing_config.as_ref().map(|c| c.user.clone()));
+        let key_path = request
+            .key_path
+            .or_else(|| existing_config.as_ref().and_then(|c| c.key_path.clone()));
+        let password = request
+            .password
+            .or_else(|| existing_config.as_ref().and_then(|c| c.password.clone()));
+
+        // Check what's missing
+        let mut missing = Vec::new();
+        if host.is_none() {
+            missing.push("host");
+        }
+        if user.is_none() {
+            missing.push("user");
+        }
+        if key_path.is_none() && password.is_none() {
+            missing.push("key_path or password");
+        }
+
+        // If anything is missing, return helpful message
+        if !missing.is_empty() {
+            let mut msg = String::from("Setup incomplete. Missing:\n\n");
+
+            if missing.contains(&"host") {
+                msg.push_str("• host - Your Android device IP\n");
+                msg.push_str("  Find it: Run 'ifconfig wlan0' in Termux\n\n");
+            }
+
+            if missing.contains(&"user") {
+                msg.push_str("• user - Your Termux username\n");
+                msg.push_str("  Find it: Run 'whoami' in Termux\n\n");
+            }
+
+            if missing.contains(&"key_path or password") {
+                msg.push_str("• Authentication - Choose one:\n");
+                msg.push_str("  SSH key (recommended):\n");
+                msg.push_str("    Generate: ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519\n");
+                msg.push_str(
+                    "    Copy to device: ssh-copy-id -p 8022 -i ~/.ssh/id_ed25519.pub USER@HOST\n",
+                );
+                msg.push_str("    Then provide: key_path = \"~/.ssh/id_ed25519\"\n\n");
+                msg.push_str("  OR password (less secure):\n");
+                msg.push_str("    Set Termux password: Run 'passwd' in Termux\n");
+                msg.push_str("    Then provide: password = \"your_password\"\n\n");
+            }
+
+            if let Some(ref h) = host {
+                msg.push_str(&format!("Current: host = \"{}\"\n", h));
+            }
+            if let Some(ref u) = user {
+                msg.push_str(&format!("Current: user = \"{}\"\n", u));
+            }
+            if let Some(ref k) = key_path {
+                msg.push_str(&format!("Current: key_path = \"{}\"\n", k));
+            }
+            if password.is_some() {
+                msg.push_str("Current: password = \"***\"\n");
+            }
+
+            return Ok(CallToolResult::error(vec![Content::text(msg)]));
+        }
+
+        // All required fields present - create config
+        let config = crate::config::Config {
+            host: host.unwrap(),
+            port: port.unwrap_or(8022),
+            user: user.unwrap(),
+            password,
+            key_path,
+        };
+
+        // Save config
+        match crate::config::Config::save(&config) {
+            Ok(path) => {
+                let msg = format!(
+                    "✓ Configuration saved to: {}\n\n\
+                     Connection details:\n\
+                     • Host: {}:{}\n\
+                     • User: {}\n\
+                     • Auth: {}\n\n\
+                     To activate, restart the MCP server:\n\
+                     1. Type /mcp\n\
+                     2. Find mcp-android-ssh in the list\n\
+                     3. Click restart\n\n\
+                     Then try: \"list files in /sdcard\"",
+                    path.display(),
+                    config.host,
+                    config.port,
+                    config.user,
+                    if config.key_path.is_some() {
+                        "SSH key"
+                    } else {
+                        "Password"
+                    }
+                );
+                Ok(CallToolResult::success(vec![Content::text(msg)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to save config: {}",
                 e
             ))])),
         }
