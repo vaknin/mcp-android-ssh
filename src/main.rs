@@ -20,7 +20,6 @@ use rmcp::{
     model::{Implementation, ServerCapabilities, ServerInfo},
     tool_handler, ServerHandler, ServiceExt,
 };
-use ssh::SshClient;
 use tools::AndroidSshService;
 
 #[tokio::main]
@@ -36,22 +35,26 @@ async fn main() -> error::Result<()> {
 
     tracing::info!("Android SSH MCP Server starting...");
 
-    // Load configuration
-    let config = Config::from_env()?;
-    tracing::info!(
-        "Loaded config: host={}:{}, user={}",
-        config.host,
-        config.port,
-        config.username
-    );
+    // Load configuration from ~/.config/mcp-android-ssh/config.toml
+    // If config doesn't exist, create template but don't fail - let first tool call handle it
+    let config = match Config::load()? {
+        Some(cfg) => {
+            tracing::info!(
+                "Loaded config: host={}:{}, user={}",
+                cfg.host,
+                cfg.port,
+                cfg.user
+            );
+            Some(cfg)
+        }
+        None => {
+            tracing::info!("Config template created, waiting for first tool call");
+            None
+        }
+    };
 
-    // Create SSH client and connect (fail fast on startup)
-    let mut ssh_client = SshClient::new(config);
-    ssh_client.connect().await?;
-    tracing::info!("Initial SSH connection successful");
-
-    // Create MCP service
-    let service = AndroidSshService::new(ssh_client);
+    // Create MCP service with optional config (lazy connection on first use)
+    let service = AndroidSshService::new(config);
 
     // Serve on stdio
     tracing::info!("Starting MCP server on stdio...");

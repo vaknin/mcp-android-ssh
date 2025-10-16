@@ -10,7 +10,7 @@
 
 A high-performance [MCP](https://modelcontextprotocol.io/) server written in Rust that provides secure SSH access to Android devices through Termux.
 
-<img src="assets/usage-example.png" alt="Usage Example" width="50%">
+<img src="assets/usage-example.png" alt="Usage Example" width="63%">
 
 *Example: AI assistant listing files and exploring directories on Android*
 
@@ -18,106 +18,185 @@ A high-performance [MCP](https://modelcontextprotocol.io/) server written in Rus
 
 ---
 
+## Why Use This?
+
+Turn your Android device into a programmable computer that AI can interact with naturally. Instead of manually SSH'ing into your phone every time you need to check something or run a command, just ask Claude:
+
+- "Show me my recent photos"
+- "Check if my Termux background service is running"
+- "Download this paper to my tablet"
+- "Find all PDFs on my device larger than 10MB"
+
+**vs. Manual SSH:** While you *could* SSH manually every time, this MCP server provides:
+- **Natural language interface** - No need to remember SSH commands or device IPs
+- **Persistent connection** - Auto-reconnects when dropped, handles network issues
+- **Safety guardrails** - Read-only operations require no approval, write operations are explicit
+- **Zero context switching** - Stay in your Claude conversation, don't break flow
+- **Cross-device workflows** - Combine Android commands with other MCP tools seamlessly
+
 ## Features
 
-- **Lightweight** - 401 KiB binary
-- **High Performance** - Memory-safe Rust implementation
-- **Secure SSH Connection** - Key-based or password authentication
-- **Safe Read Commands** - 81 whitelisted read-only commands (ls, cat, ps, etc.)
-- **Full Write Access** - Execute any command including system operations
-- **Auto-Reconnect** - Persistent connections with retry logic
-- **Security** - SSH key auth preferred, command whitelist for read-only operations
+- **Zero-config first run** - Creates config template automatically on first use
+- **Lightweight & fast** - 401 KiB binary, memory-safe Rust implementation
+- **Smart safety** - 81 whitelisted read-only commands run freely, writes require explicit tool
+- **Bulletproof connectivity** - Auto-reconnect with retry logic, handles network drops
+- **Flexible auth** - SSH key (recommended) or password authentication
+- **Privacy-first** - Local-only connection, no data leaves your network
 
-## Prerequisites
+## Quick Start
 
-**On Android:**
-- Termux ([F-Droid](https://f-droid.org/packages/com.termux/) recommended)
-- OpenSSH server running on port 8022
+### TL;DR (Experienced Users)
 
-**On Host:**
-- Rust toolchain (for `cargo install`)
-- MCP-compatible client (Claude Code, etc.)
+```bash
+# Install
+cargo install mcp-android-ssh
+claude mcp add --scope user --transport stdio mcp-android-ssh mcp-android-ssh
 
-### Setup Android Device
+# Setup Termux (on Android)
+pkg install openssh && sshd
 
-**In Termux:**
+# Copy your SSH key
+ssh-copy-id -p 8022 -i ~/.ssh/id_ed25519.pub YOUR_USER@YOUR_ANDROID_IP
+
+# Ask Claude anything about your Android device!
+```
+
+The server will create `~/.config/mcp-android-ssh/config.toml` on first use - just edit with your device credentials.
+
+<details>
+<summary><b>Detailed Setup Guide</b> (click to expand)</summary>
+
+## Detailed Setup
+
+### Installation & Configuration
+
+**Step 1: Install and add to Claude Code**
+
+```bash
+cargo install mcp-android-ssh
+claude mcp add --scope user --transport stdio mcp-android-ssh mcp-android-ssh
+```
+
+**Step 2: Setup your Android device**
+
+In Termux on your Android device:
 ```bash
 # Install and start SSH server
 pkg update && pkg install openssh && sshd
 
-# Find your username and IP
+# Find your username and IP address
 whoami          # Example: u0_a555
 ifconfig wlan0  # Example: 192.168.1.100
 ```
 
-### Setup SSH Key Authentication (Recommended)
+**Step 3: Setup SSH key authentication (recommended)**
 
-**Host machine:**
+On your host machine:
 ```bash
-# Generate key (skip if you already have one)
+# Generate SSH key (skip if you already have one)
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
 
-# Copy to Android (enter password once, then done!)
+# Copy key to Android (replace with your username and IP)
 ssh-copy-id -p 8022 -i ~/.ssh/id_ed25519.pub u0_a555@192.168.1.100
 ```
 
-## Quick Start
+**Step 4: Configure the server**
 
-### Installation
+On first use, when you ask Claude to interact with your Android device, the server will create a config template at `~/.config/mcp-android-ssh/config.toml` with instructions. Edit it with your credentials:
 
-```bash
-cargo install mcp-android-ssh
+```toml
+host = "192.168.1.100"        # Your Android device IP
+port = 8022                    # SSH port (default 8022 for Termux)
+user = "u0_a555"               # Your Termux username
+key_path = "~/.ssh/id_ed25519" # Path to your SSH private key
+
+# Optional: password authentication (not recommended)
+# password = "your_password"
 ```
 
-### Configure Connection
+**Alternative: Use environment variables**
 
-Create a `.env` file in your working directory:
-
+You can also configure via environment variables (useful for testing):
 ```bash
-ANDROID_SSH_HOST=192.168.1.100
-ANDROID_SSH_PORT=8022
-ANDROID_SSH_USER=u0_a555
-ANDROID_SSH_KEY_PATH=~/.ssh/id_ed25519
-# ANDROID_SSH_PASSWORD=your_password
-```
-
-### Add to Claude Code
-
-```bash
-claude mcp add --scope user --transport stdio mcp-android-ssh mcp-android-ssh
+export ANDROID_SSH_HOST=192.168.1.100
+export ANDROID_SSH_USER=u0_a555
+export ANDROID_SSH_KEY_PATH=~/.ssh/id_ed25519
 ```
 
 That's it! Start asking your AI assistant to interact with your Android device.
 
+</details>
+
+---
+
 ## Usage Examples
 
-**Read-only operations:**
-- "List files in /sdcard/Download"
-- "Show running processes on my Android"
-- "Check disk usage on my phone"
-- "Read my Termux .bashrc file"
+### File Management
+- "Show me my most recent photos from /sdcard/DCIM"
+- "Find all PDF files on my device larger than 10MB"
+- "What's taking up the most space on my phone?"
+- "List all APK files I've downloaded"
 
-**Write operations:**
-- "Create a backup directory in /sdcard"
-- "Install git on my Android device"
-- "Download a file with curl"
-- "Run system diagnostics with dumpsys"
+### Development & Monitoring
+- "Show me running processes sorted by memory usage"
+- "Check if my PostgreSQL server is running in Termux"
+- "What's the CPU temperature right now?"
+- "Show me the last 50 lines of my server logs"
 
-## Tools
+### System Administration
+- "Install python and pip on my Android device"
+- "Create a backup of my Termux home directory"
+- "Download the latest dataset from example.com to /sdcard"
+- "Set up a cron job to run my backup script daily"
 
-### `execute_read`
-Execute safe, read-only commands. 81 whitelisted commands including: ls, cat, ps, grep, find, df, top, and more.
+### Data Analysis
+- "Parse my call log and show me my top 10 contacts by call count"
+- "Extract all URLs from my browser history"
+- "Analyze my app usage statistics from dumpsys"
+- "Find duplicate files in my photos directory"
+
+### Quick Utilities
+- "What's my Android device's IP address?"
+- "Show me battery information"
+- "Check if specific packages are installed"
+- "Read my termux startup script"
+
+---
+
+## API Reference
+
+The server exposes two MCP tools that Claude can use:
+
+### `execute_read` - Safe Read-Only Commands
+
+Executes whitelisted read-only commands without user approval. Perfect for browsing files, checking system status, and gathering information.
+
+**81 Whitelisted Commands Include:**
+- File operations: `ls`, `cat`, `head`, `tail`, `grep`, `find`, `tree`
+- System monitoring: `ps`, `top`, `df`, `du`, `free`, `uptime`
+- Network: `ping`, `netstat`, `ss`, `ifconfig`
+- Text processing: `wc`, `sort`, `cut`, `jq`
+- [See full list in source](src/tools.rs#L13-L135)
 
 **Parameters:**
-- `command` (string) - The command to execute
+- `command` (string, required) - The shell command to execute
 - `timeout` (number, optional) - Timeout in seconds (default: 30, max: 300)
 
-### `execute`
-Execute any command including write operations.
+**Example:** `ls -lah /sdcard/Download`
+
+---
+
+### `execute` - Full Command Access
+
+Executes any command including write/modify/delete operations. Use this for installing packages, creating files, or modifying system state.
 
 **Parameters:**
-- `command` (string) - The command to execute
+- `command` (string, required) - The shell command to execute
 - `timeout` (number, optional) - Timeout in seconds (default: 30, max: 300)
+
+**Example:** `pkg install git`
+
+**Note:** Commands that aren't whitelisted in `execute_read` will automatically suggest using this tool instead.
 
 ---
 

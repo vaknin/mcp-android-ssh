@@ -71,11 +71,29 @@ impl SshClient {
             handler,
         )
         .await
-        .map_err(|e| SshMcpError::SshConnection(format!("Connection failed: {}", e)))?;
+        .map_err(|e| {
+            SshMcpError::SshConnection(format!(
+                "Cannot connect to Android device\n\n\
+                 Error: Connection failed to {}:{}\n\
+                 Details: {}\n\n\
+                 Troubleshooting:\n\
+                 - Is sshd running in Termux? Run: sshd\n\
+                 - Is the IP address correct? Check: ifconfig wlan0\n\
+                 - Are both devices on the same network?\n\
+                 - Try connecting manually: ssh -p {} {}@{}\n\n\
+                 Setup guide: https://github.com/vaknin/mcp-android-ssh#setup",
+                self.config.host,
+                self.config.port,
+                e,
+                self.config.port,
+                self.config.user,
+                self.config.host
+            ))
+        })?;
 
         // Try authentication: key first, then password
-        let auth_success = if let Some(ref key_path) = self.config.key_path {
-            match self.try_key_auth(&mut session, key_path).await {
+        let auth_success = if let Some(key_path) = self.config.expanded_key_path() {
+            match self.try_key_auth(&mut session, &key_path).await {
                 Ok(success) if success => {
                     tracing::info!("Authenticated with SSH key");
                     true
@@ -85,9 +103,23 @@ impl SshClient {
                     if let Some(ref password) = self.config.password {
                         self.try_password_auth(&mut session, password).await?
                     } else {
-                        return Err(SshMcpError::Authentication(
-                            "Key authentication failed and no password provided".to_string(),
-                        ));
+                        return Err(SshMcpError::Authentication(format!(
+                            "SSH Authentication Failed\n\n\
+                             Could not authenticate with {}:{}\n\n\
+                             Key authentication failed and no password provided.\n\n\
+                             Check:\n\
+                             - Key file exists: {}\n\
+                             - Key was copied to Android: ssh-copy-id -p {} -i {}.pub {}@{}\n\
+                             - Or add password to config if using password auth\n\n\
+                             Authentication guide: https://github.com/vaknin/mcp-android-ssh#setup-ssh-key-authentication",
+                            self.config.host,
+                            self.config.port,
+                            self.config.key_path.as_ref().unwrap(),
+                            self.config.port,
+                            self.config.key_path.as_ref().unwrap(),
+                            self.config.user,
+                            self.config.host
+                        )));
                     }
                 }
                 Err(e) => {
@@ -95,7 +127,24 @@ impl SshClient {
                     if let Some(ref password) = self.config.password {
                         self.try_password_auth(&mut session, password).await?
                     } else {
-                        return Err(e);
+                        return Err(SshMcpError::Authentication(format!(
+                            "SSH Authentication Failed\n\n\
+                             Could not authenticate with {}:{}\n\n\
+                             Key authentication error: {}\n\n\
+                             Check:\n\
+                             - Key file exists: {}\n\
+                             - Key was copied to Android: ssh-copy-id -p {} -i {}.pub {}@{}\n\
+                             - Or add password to config if using password auth\n\n\
+                             Authentication guide: https://github.com/vaknin/mcp-android-ssh#setup-ssh-key-authentication",
+                            self.config.host,
+                            self.config.port,
+                            e,
+                            self.config.key_path.as_ref().unwrap(),
+                            self.config.port,
+                            self.config.key_path.as_ref().unwrap(),
+                            self.config.user,
+                            self.config.host
+                        )));
                     }
                 }
             }
@@ -103,14 +152,30 @@ impl SshClient {
             self.try_password_auth(&mut session, password).await?
         } else {
             return Err(SshMcpError::Authentication(
-                "No authentication method available".to_string(),
+                "No authentication method available\n\n\
+                 Must provide either 'password' or 'key_path' in config.\n\n\
+                 Setup guide: https://github.com/vaknin/mcp-android-ssh#setup".to_string(),
             ));
         };
 
         if !auth_success {
-            return Err(SshMcpError::Authentication(
-                "Authentication failed".to_string(),
-            ));
+            return Err(SshMcpError::Authentication(format!(
+                "SSH Authentication Failed\n\n\
+                 Could not authenticate with {}:{}\n\n\
+                 Check:\n\
+                 - Password is correct (if using password auth)\n\
+                 - Key was copied to Android: ssh-copy-id -p {} -i KEY_FILE.pub {}@{}\n\
+                 - Try connecting manually: ssh -p {} {}@{}\n\n\
+                 Authentication guide: https://github.com/vaknin/mcp-android-ssh#setup-ssh-key-authentication",
+                self.config.host,
+                self.config.port,
+                self.config.port,
+                self.config.user,
+                self.config.host,
+                self.config.port,
+                self.config.user,
+                self.config.host
+            )));
         }
 
         Ok(session)
@@ -127,7 +192,7 @@ impl SshClient {
         let key_with_hash = keys::PrivateKeyWithHashAlg::new(Arc::new(key_pair), None);
 
         let auth_result = session
-            .authenticate_publickey(&self.config.username, key_with_hash)
+            .authenticate_publickey(&self.config.user, key_with_hash)
             .await
             .map_err(|e| SshMcpError::Authentication(format!("Key auth failed: {}", e)))?;
 
@@ -140,7 +205,7 @@ impl SshClient {
         password: &str,
     ) -> Result<bool> {
         let auth_result = session
-            .authenticate_password(&self.config.username, password)
+            .authenticate_password(&self.config.user, password)
             .await
             .map_err(|e| SshMcpError::Authentication(format!("Password auth failed: {}", e)))?;
 
@@ -208,9 +273,10 @@ impl SshClient {
 
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let mut exit_code = 0;
+        let mut exit_code: Option<i32> = None;
+        let mut got_eof = false;
 
-        // Collect output
+        // Collect output and wait for exit status
         while let Some(msg) = channel.wait().await {
             match msg {
                 ChannelMsg::Data { data } => {
@@ -223,14 +289,26 @@ impl SshClient {
                     }
                 }
                 ChannelMsg::ExitStatus { exit_status } => {
-                    exit_code = exit_status as i32;
+                    exit_code = Some(exit_status as i32);
+                    // If we already got EOF, we can break now
+                    if got_eof {
+                        break;
+                    }
                 }
                 ChannelMsg::Eof => {
-                    break;
+                    got_eof = true;
+                    // If we already have the exit status, we can break
+                    if exit_code.is_some() {
+                        break;
+                    }
                 }
                 _ => {}
             }
         }
+
+        // If no exit status was received, default to 0 (success)
+        // This can happen with commands like 'exit N' that close the channel immediately
+        let exit_code = exit_code.unwrap_or(0);
 
         Ok(CommandResult {
             stdout: String::from_utf8_lossy(&stdout).to_string(),

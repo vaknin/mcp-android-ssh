@@ -141,12 +141,13 @@ fn is_read_only(command: &str) -> bool {
 
 #[derive(Clone)]
 pub struct AndroidSshService {
-    pub(crate) ssh_client: Arc<Mutex<SshClient>>,
-    pub(crate) tool_router: ToolRouter<Self>,
+    pub(crate) ssh_client: Arc<Mutex<Option<SshClient>>>,
+    pub tool_router: ToolRouter<Self>,
 }
 
 impl AndroidSshService {
-    pub fn new(ssh_client: SshClient) -> Self {
+    pub fn new(config: Option<crate::config::Config>) -> Self {
+        let ssh_client = config.map(|cfg| SshClient::new(cfg));
         Self {
             ssh_client: Arc::new(Mutex::new(ssh_client)),
             tool_router: Self::tool_router(),
@@ -174,6 +175,14 @@ impl AndroidSshService {
         &self,
         Parameters(request): Parameters<ExecuteRequest>,
     ) -> Result<CallToolResult, McpError> {
+        // Check if client exists (config was loaded)
+        let mut client_guard = self.ssh_client.lock().await;
+        if client_guard.is_none() {
+            return Ok(CallToolResult::error(vec![Content::text(
+                crate::config::Config::first_run_message(),
+            )]));
+        }
+
         // Validate timeout
         if request.timeout == 0 || request.timeout > 300 {
             return Ok(CallToolResult::error(vec![Content::text(
@@ -191,7 +200,7 @@ impl AndroidSshService {
         }
 
         // Execute command
-        let mut client = self.ssh_client.lock().await;
+        let client = client_guard.as_mut().unwrap();
         match client
             .execute_command(&request.command, request.timeout)
             .await
@@ -245,6 +254,14 @@ impl AndroidSshService {
         &self,
         Parameters(request): Parameters<ExecuteRequest>,
     ) -> Result<CallToolResult, McpError> {
+        // Check if client exists (config was loaded)
+        let mut client_guard = self.ssh_client.lock().await;
+        if client_guard.is_none() {
+            return Ok(CallToolResult::error(vec![Content::text(
+                crate::config::Config::first_run_message(),
+            )]));
+        }
+
         // Validate timeout
         if request.timeout == 0 || request.timeout > 300 {
             return Ok(CallToolResult::error(vec![Content::text(
@@ -253,7 +270,7 @@ impl AndroidSshService {
         }
 
         // Execute command
-        let mut client = self.ssh_client.lock().await;
+        let client = client_guard.as_mut().unwrap();
         match client
             .execute_command(&request.command, request.timeout)
             .await
