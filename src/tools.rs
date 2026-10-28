@@ -200,7 +200,7 @@ impl AndroidSshService {
         let mut client_guard = self.ssh_client.lock().await;
         if client_guard.is_none() {
             return Ok(CallToolResult::error(vec![Content::text(
-                crate::config::Config::first_run_message(),
+                crate::config::Config::get_config_error_message(),
             )]));
         }
 
@@ -281,7 +281,7 @@ impl AndroidSshService {
         let mut client_guard = self.ssh_client.lock().await;
         if client_guard.is_none() {
             return Ok(CallToolResult::error(vec![Content::text(
-                crate::config::Config::first_run_message(),
+                crate::config::Config::get_config_error_message(),
             )]));
         }
 
