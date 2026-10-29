@@ -104,28 +104,44 @@ impl Config {
     }
 
     /// Load configuration from file with environment variable overrides
-    /// Returns Ok(None) if config doesn't exist yet (first run)
+    /// Returns Ok(None) if config doesn't exist yet (first run) or has parsing errors
+    /// Parsing errors are logged but don't cause startup failure - deferred to first tool call
     pub fn load() -> Result<Option<Self>> {
         let config_path = match Self::ensure_config_exists()? {
             Some(path) => path,
             None => return Ok(None), // Config template created, needs editing
         };
 
-        // Read and parse TOML
-        let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| SshMcpError::Config(format!("Failed to read config file: {}", e)))?;
+        // Read config file
+        let content = match std::fs::read_to_string(&config_path) {
+            Ok(content) => content,
+            Err(e) => {
+                tracing::warn!("Failed to read config file: {}", e);
+                return Ok(None);
+            }
+        };
 
-        let mut config: Config = toml::from_str(&content)
-            .map_err(|e| SshMcpError::Config(format!("Failed to parse config file: {}", e)))?;
+        // Parse TOML - catch errors and defer to first tool call
+        let mut config: Config = match toml::from_str(&content) {
+            Ok(config) => config,
+            Err(e) => {
+                tracing::warn!("Config file has errors, will show message on first tool call: {}", e);
+                return Ok(None);
+            }
+        };
 
         // Environment variables override config file
         if let Ok(host) = std::env::var("ANDROID_SSH_HOST") {
             config.host = host;
         }
         if let Ok(port) = std::env::var("ANDROID_SSH_PORT") {
-            config.port = port
-                .parse()
-                .map_err(|e| SshMcpError::Config(format!("Invalid ANDROID_SSH_PORT: {}", e)))?;
+            config.port = match port.parse() {
+                Ok(port) => port,
+                Err(e) => {
+                    tracing::warn!("Invalid ANDROID_SSH_PORT: {}", e);
+                    return Ok(None);
+                }
+            };
         }
         if let Ok(user) = std::env::var("ANDROID_SSH_USER") {
             config.user = user;
@@ -137,8 +153,11 @@ impl Config {
             config.key_path = Some(key_path);
         }
 
-        // Validate configuration
-        config.validate()?;
+        // Validate configuration - catch errors and defer to first tool call
+        if let Err(e) = config.validate() {
+            tracing::warn!("Config validation failed, will show message on first tool call: {}", e);
+            return Ok(None);
+        }
 
         Ok(Some(config))
     }
@@ -166,6 +185,93 @@ impl Config {
              Full setup guide: https://github.com/vaknin/mcp-android-ssh#setup",
             config_path
         )
+    }
+
+    /// Get appropriate error message based on config state
+    /// Checks if config exists and returns either first-run message or parsing error details
+    pub fn get_config_error_message() -> String {
+        let config_path = match Self::config_file_path() {
+            Ok(path) => path,
+            Err(_) => return Self::first_run_message(),
+        };
+
+        // If config doesn't exist, return first-run message
+        if !config_path.exists() {
+            return Self::first_run_message();
+        }
+
+        // Config exists but has errors - try to parse and show specific error
+        match std::fs::read_to_string(&config_path) {
+            Ok(content) => {
+                match toml::from_str::<Config>(&content) {
+                    Ok(config) => {
+                        // Parsing succeeded but validation might have failed
+                        if let Err(e) = config.validate() {
+                            format!(
+                                "Configuration Error\n\n\
+                                 Config file: {}\n\n\
+                                 Validation failed: {}\n\n\
+                                 Please fix the configuration file or use the 'setup' tool.",
+                                config_path.display(),
+                                e
+                            )
+                        } else {
+                            // This shouldn't happen, but just in case
+                            Self::first_run_message()
+                        }
+                    }
+                    Err(e) => {
+                        // Parse error - show helpful message
+                        let error_msg = format!("{}", e);
+
+                        // Check for common errors
+                        let hint = if error_msg.contains("missing field") {
+                            let field = if error_msg.contains("missing field `user`") {
+                                Some("user")
+                            } else if error_msg.contains("missing field `host`") {
+                                Some("host")
+                            } else {
+                                None
+                            };
+
+                            if let Some(field_name) = field {
+                                format!(
+                                    "\n\nHint: The field '{}' is required. Make sure your config has:\n\
+                                     {} = \"your_value_here\"",
+                                    field_name, field_name
+                                )
+                            } else {
+                                String::new()
+                            }
+                        } else if error_msg.contains("username") {
+                            "\n\nHint: Use 'user' not 'username' in the config file.".to_string()
+                        } else {
+                            String::new()
+                        };
+
+                        format!(
+                            "Configuration Parse Error\n\n\
+                             Config file: {}\n\n\
+                             Error: {}{}\n\n\
+                             Please fix the configuration file or use the 'setup' tool to reconfigure.",
+                            config_path.display(),
+                            error_msg,
+                            hint
+                        )
+                    }
+                }
+            }
+            Err(e) => {
+                format!(
+                    "Configuration Read Error\n\n\
+                     Config file: {}\n\n\
+                     Failed to read: {}\n\n\
+                     Please check file permissions.",
+                    config_path.display(),
+                    e
+                )
+            }
+        }
     }
 
     /// Validate the configuration
